@@ -59,7 +59,7 @@ use std::env;
 fn main() -> Result<(), DynError> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        let msg = format!("引数が必要です\n 例: {} 実行ファイル [引数*]", args[0]).into();
+        let msg: String = format!("引数が必要です\n 例: {} 実行ファイル [引数*]", args[0]).into();
         return Err(msg.into());
     }
 

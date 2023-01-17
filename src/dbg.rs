@@ -8,7 +8,10 @@ use nix::{
     },
     unistd::{execvp, fork, ForkResult, Pid},
 };
-use std::{ffi::{c_void, CString}, ops::Not};
+use std::{
+    ffi::{c_void, CString},
+    ops::Not,
+};
 
 pub struct DbgInfo {
     pid: Pid,
@@ -200,7 +203,7 @@ impl ZDbg<Running> {
         match waitpid(self.info.pid, None)? {
             WaitStatus::Exited(..) | WaitStatus::Signaled(..) => {
                 println!("<<子プロセスが終了しました>>");
-                let not_run = ZDbg::<NotRunning {
+                let not_run = ZDbg::<NotRunning> {
                     info: self.info,
                     _state: NotRunning,
                 };
@@ -208,7 +211,7 @@ impl ZDbg<Running> {
             }
             WaitStatus::Stopped(..) => {
                 let mut regs = ptrace::getregs(self.info.pid)?;
-                if Some((regs.rip - 1)  as *mut c_void) == self.info.brk_addr {
+                if Some((regs.rip - 1) as *mut c_void) == self.info.brk_addr {
                     unsafe {
                         // 書き換えたアドレスをもとに戻す
                         ptrace::write(
@@ -227,22 +230,8 @@ impl ZDbg<Running> {
 
                 Ok(State::Running(self))
             }
-            _ => Err("waitpidの返り値が不正です".into())
+            _ => Err("waitpidの返り値が不正です".into()),
         }
-    }
-
-    fn print_regs(regs: &user_regs_struct) {
-        println!(
-            r#"RIP: {:#016x}, RSP: {:#016x}, RBP: {:#016x}
-            RAX: {:#016x}, RBX: {:#016x}, RCX: {:#016x}
-            RDX: {:#016x}, RSI: {:#016x}, RDI: {:#016x}
-             R8: {:#016x},  R9: {:#016x}, R10: {:#016x}
-            R11: {:#016x}, R12: {:#016x}, R13: {:#016x}
-            R14: {:#016x}, R15: {:#016x}
-            "#,
-            regs.rip, regs.rsp,regs.rbp,regs.rax,regs.rbx,regs.rcx,
-            regs.rdx,regs.rsi,regs.rdi,regs.r8,regs.r9,regs.r10,regs.r11,regs.r12,regs.r13,regs.r14,regs.r15
-        );
     }
 
     fn step_and_break(mut self) -> Result<State, DynError> {
@@ -300,6 +289,24 @@ impl ZDbg<Running> {
         }
     }
 
+    fn do_stepi(self) -> Result<State, DynError> {
+        let regs = ptrace::getregs(self.info.pid)?;
+        if Some((regs.rip) as *mut c_void) == self.info.brk_addr {
+            unsafe {
+                // ここの分岐は次の実行がbpの時、メモリの内容をもとに戻してから実行する必要がある
+                ptrace::write(
+                    self.info.pid,
+                    self.info.brk_addr.unwrap(),
+                    self.info.brk_val as *mut c_void,
+                )?;
+                self.step_and_break()
+            }
+        } else {
+            ptrace::setregs(self.info.pid, regs)?;
+            self.wait_child()
+        }
+    }
+
     pub fn do_cmd(mut self, cmd: &[&str]) -> Result<State, DynError> {
         if cmd.is_empty() {
             return Ok(State::Running(self));
@@ -325,6 +332,35 @@ impl ZDbg<Running> {
 
         Ok(State::Running(self))
     }
+}
+
+fn print_regs(regs: &user_regs_struct) {
+    println!(
+        r#"RIP: {:#016x}, RSP: {:#016x}, RBP: {:#016x}
+RAX: {:#016x}, RBX: {:#016x}, RCX: {:#016x}
+RDX: {:#016x}, RSI: {:#016x}, RDI: {:#016x}
+ R8: {:#016x},  R9: {:#016x}, R10: {:#016x}
+R11: {:#016x}, R12: {:#016x}, R13: {:#016x}
+R14: {:#016x}, R15: {:#016x}
+            "#,
+        regs.rip,
+        regs.rsp,
+        regs.rbp,
+        regs.rax,
+        regs.rbx,
+        regs.rcx,
+        regs.rdx,
+        regs.rsi,
+        regs.rdi,
+        regs.r8,
+        regs.r9,
+        regs.r10,
+        regs.r11,
+        regs.r12,
+        regs.r13,
+        regs.r14,
+        regs.r15
+    );
 }
 
 fn get_break_addr(cmd: &[&str]) -> Option<*mut c_void> {
