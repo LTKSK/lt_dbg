@@ -8,6 +8,7 @@ use nix::{
     },
     unistd::{execvp, fork, ForkResult, Pid},
 };
+use std::marker::PhantomData;
 use std::{
     ffi::{c_void, CString},
     ops::Not,
@@ -24,7 +25,8 @@ pub struct DbgInfo {
 // NotRunningのときは子プロセスを実行していない
 pub struct ZDbg<T> {
     info: Box<DbgInfo>,
-    _state: T,
+    // とりあえず置き換えては見たけどなんか違いそう...結局空structを使っているときとやっていることがかわらん
+    _state: PhantomData<T>,
 }
 
 // 以下の2つはサイズが0なので実行時にメモリを消費しない。幽霊型
@@ -84,7 +86,7 @@ impl ZDbg<NotRunning> {
                 brk_val: 0,
                 filename,
             }),
-            _state: NotRunning,
+            _state: PhantomData,
         }
     }
 
@@ -134,7 +136,7 @@ impl ZDbg<NotRunning> {
                     self.info.pid = child;
                     let mut dbg = ZDbg::<Running> {
                         info: self.info,
-                        _state: Running,
+                        _state: PhantomData,
                     };
                     dbg.set_break()?; // bp設定。これはプロセスの実行中にしか行えない
                     dbg.do_continue()
@@ -205,7 +207,7 @@ impl ZDbg<Running> {
                 println!("<<子プロセスが終了しました>>");
                 let not_run = ZDbg::<NotRunning> {
                     info: self.info,
-                    _state: NotRunning,
+                    _state: PhantomData,
                 };
                 Ok(State::NotRunning(not_run))
             }
@@ -245,7 +247,7 @@ impl ZDbg<Running> {
                     println!("<<子プロセスが終了しました>>");
                     return Ok(State::NotRunning(ZDbg::<NotRunning> {
                         info: self.info,
-                        _state: NotRunning,
+                        _state: PhantomData,
                     }));
                 }
                 _ => (),
